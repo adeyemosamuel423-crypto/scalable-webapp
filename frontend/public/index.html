@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamHive — watch what the hive is making</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="hex"></span> StreamHive</div>
+  <div id="nav-actions" class="nav-links"></div>
+</div>
+
+<div class="container">
+  <div class="hero">
+    <div class="eyebrow">Latest from the hive</div>
+    <h1>Short videos, made by creators<br>you can actually reach.</h1>
+    <p>Browse, search, comment and rate — StreamHive is a small, self-hosted video
+   </p>
+  </div>
+
+  <div class="search-row">
+    <input id="search-input" type="text" placeholder="Search titles or descriptions…">
+    <select id="genre-select">
+      <option value="">All genres</option>
+      <option>Comedy</option>
+      <option>Music</option>
+      <option>Education</option>
+      <option>Gaming</option>
+      <option>Vlog</option>
+      <option>Sports</option>
+      <option>Tech</option>
+      <option>Other</option>
+    </select>
+    <button id="search-btn" class="pill primary">Search</button>
+  </div>
+
+  <div class="section-title">Dashboard <span class="count" id="result-count"></span></div>
+  <div class="grid" id="video-grid"></div>
+  <div id="empty-state" style="display:none" class="empty">No videos yet — be the first creator to upload one.</div>
+</div>
+
+<footer>StreamHive · COM769 Coursework 2 demo build</footer>
+
+<script src="js/api.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>

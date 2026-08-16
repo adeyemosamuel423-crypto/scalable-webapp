@@ -1,0 +1,304 @@
+services:
+
+  # ==========================================================
+  # POSTGRESQL
+  # ==========================================================
+
+  postgres:
+    image: postgres:16-alpine
+
+    container_name: streamhive-postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${PGUSER:-streamhive}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-streamhive_pw}
+      POSTGRES_DB: ${PGDATABASE:-streamhive}
+
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+    ports:
+      - "5432:5432"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${PGUSER:-streamhive} -d ${PGDATABASE:-streamhive}"
+        ]
+
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  # ==========================================================
+  # REDIS
+  # ==========================================================
+
+  redis:
+    image: redis:7-alpine
+
+    container_name: streamhive-redis
+
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
+
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  # ==========================================================
+  # MINIO
+  # ==========================================================
+  #
+  # MinIO is retained for LOCAL DEVELOPMENT ONLY.
+  #
+  # Azure deployment uses:
+  #
+  #     Azure Blob Storage
+  #
+  # instead of MinIO.
+  # ==========================================================
+
+  minio:
+    image: minio/minio:latest
+
+    container_name: streamhive-minio
+
+    restart: unless-stopped
+
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+
+    environment:
+      MINIO_ROOT_USER:
+        ${MINIO_ACCESS_KEY:-streamhive}
+
+      MINIO_ROOT_PASSWORD:
+        ${MINIO_SECRET_KEY:-streamhive_secret}
+
+    volumes:
+      - minio_data:/data
+
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:9000/minio/health/live"
+        ]
+
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  # ==========================================================
+  # BACKEND
+  # ==========================================================
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: streamhive-backend
+
+    restart: unless-stopped
+
+    depends_on:
+
+      postgres:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      minio:
+        condition: service_healthy
+
+    environment:
+
+      # --------------------------------------------------------
+      # Application
+      # --------------------------------------------------------
+
+      NODE_ENV: ${NODE_ENV:-development}
+
+      PORT: 4000
+
+      HOST: 0.0.0.0
+
+
+      # --------------------------------------------------------
+      # PostgreSQL
+      # --------------------------------------------------------
+
+      PGHOST: postgres
+
+      PGPORT: 5432
+
+      PGUSER: ${PGUSER:-streamhive}
+
+      PGPASSWORD: ${PGPASSWORD:-streamhive_pw}
+
+      PGDATABASE: ${PGDATABASE:-streamhive}
+
+      # Local PostgreSQL does not require SSL.
+      #
+      # Azure will use:
+      # PGSSL=true
+
+      PGSSL: "false"
+
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+
+      PG_IDLE_TIMEOUT: ${PG_IDLE_TIMEOUT:-30000}
+
+      PG_CONNECTION_TIMEOUT: ${PG_CONNECTION_TIMEOUT:-10000}
+
+
+      # --------------------------------------------------------
+      # Redis
+      # --------------------------------------------------------
+
+      REDIS_HOST: redis
+
+      REDIS_PORT: 6379
+
+      REDIS_DEFAULT_TTL: ${REDIS_DEFAULT_TTL:-30}
+
+
+      # --------------------------------------------------------
+      # Storage
+      # --------------------------------------------------------
+      #
+      # Local Docker uses MinIO.
+      #
+      # Azure uses:
+      # STORAGE_PROVIDER=azure
+      #
+      # --------------------------------------------------------
+
+      STORAGE_PROVIDER: minio
+
+      MINIO_ENDPOINT: minio
+
+      MINIO_PORT: 9000
+
+      MINIO_USE_SSL: "false"
+
+      MINIO_ACCESS_KEY:
+        ${MINIO_ACCESS_KEY:-streamhive}
+
+      MINIO_SECRET_KEY:
+        ${MINIO_SECRET_KEY:-streamhive_secret}
+
+      MINIO_BUCKET:
+        ${MINIO_BUCKET:-streamhive-videos}
+
+
+      # --------------------------------------------------------
+      # Azure Blob Storage
+      # --------------------------------------------------------
+      #
+      # These remain empty locally.
+      #
+      # They are supplied as Azure Container App secrets
+      # during Azure deployment.
+      # --------------------------------------------------------
+
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+
+      AZURE_STORAGE_CONTAINER:
+        ${AZURE_STORAGE_CONTAINER:-streamhive-videos}
+
+
+      # --------------------------------------------------------
+      # Authentication
+      # --------------------------------------------------------
+
+      JWT_SECRET:
+        ${JWT_SECRET:-dev_only_change_me_in_production}
+
+
+      # --------------------------------------------------------
+      # Demo Creator
+      # --------------------------------------------------------
+
+      SEED_CREATOR_EMAIL:
+        ${SEED_CREATOR_EMAIL:-creator@streamhive.local}
+
+      SEED_CREATOR_PASSWORD:
+        ${SEED_CREATOR_PASSWORD:-CreatorPass123!}
+
+
+    ports:
+      - "4000:4000"
+
+
+  # ==========================================================
+  # FRONTEND
+  # ==========================================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: streamhive-frontend
+
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    environment:
+
+      # --------------------------------------------------------
+      # Local Docker backend
+      # --------------------------------------------------------
+      #
+      # nginx.conf.template uses this variable:
+      #
+      # proxy_pass ${BACKEND_URL}/api/;
+      #
+      # --------------------------------------------------------
+
+      BACKEND_URL: http://backend:4000
+
+    ports:
+      - "8080:80"
+
+
+# ============================================================
+# PERSISTENT LOCAL DOCKER VOLUMES
+# ============================================================
+
+volumes:
+
+  pg_data:
+
+  minio_data:

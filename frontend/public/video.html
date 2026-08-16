@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watch — StreamHive</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="hex"></span> StreamHive</a>
+  <div id="nav-actions" class="nav-links"></div>
+</div>
+
+<div class="container">
+  <div class="watch-layout">
+    <div>
+      <div class="player-wrap">
+        <video id="player" controls preload="metadata"></video>
+      </div>
+      <div class="video-info">
+        <h1 id="v-title">Loading…</h1>
+        <div class="video-tags" id="v-tags"></div>
+        <div class="rate-row">
+          <div id="star-row"></div>
+          <span class="stat" id="rate-stat"></span>
+        </div>
+        <p id="v-desc" style="color:var(--text-muted);line-height:1.6;"></p>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title" style="font-size:1.1rem;">Comments</div>
+      <div class="comment-box" id="comment-form-wrap"></div>
+      <div id="comments-list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/video.js"></script>
+</body>
+</html>
