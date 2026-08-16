@@ -1,257 +1,283 @@
-# ============================================================
-# StreamHive - Azure DevOps CI/CD Pipeline
-# ============================================================
+# # ============================================================
+# # StreamHive - Azure DevOps CI/CD Pipeline
+# # ============================================================
+
+# trigger:
+#   - main
+
+
+# # ============================================================
+# # VARIABLES
+# # ============================================================
+
+# variables:
+
+#   # Azure DevOps service connection
+#   # This must exactly match the service connection name
+#   # created in Azure DevOps.
+#   azureServiceConnection: 'streamhive-azure'
+
+#   # Azure resources
+#   resourceGroup: 'rg-streamhive'
+
+#   containerRegistry: 'streamhiveregistry2026'
+
+#   backendApp: 'streamhive-api'
+
+#   frontendApp: 'streamhive-web'
+
+
+# # ============================================================
+# # AGENT
+# # ============================================================
+
+# pool:
+#   vmImage: 'ubuntu-latest'
+
+
+# # ============================================================
+# # BUILD, PUSH, DEPLOY AND TEST
+# # ============================================================
+
+# steps:
+
+#   # ----------------------------------------------------------
+#   # 1. Checkout source code
+#   # ----------------------------------------------------------
+
+#   - checkout: self
+
+#     displayName: 'Checkout StreamHive source code'
+
+
+#   # ----------------------------------------------------------
+#   # 2. Build and deploy using Azure CLI
+#   # ----------------------------------------------------------
+
+#   - task: AzureCLI@2
+
+#     displayName: 'Build, Push and Deploy StreamHive'
+
+#     inputs:
+
+#       azureSubscription: '$(azureServiceConnection)'
+
+#       scriptType: 'bash'
+
+#       scriptLocation: 'inlineScript'
+
+#       inlineScript: |
+
+#         set -e
+
+#         echo "=============================================="
+#         echo "StreamHive Azure Deployment"
+#         echo "=============================================="
+
+#         # ----------------------------------------------------
+#         # Build number used as Docker image tag
+#         # ----------------------------------------------------
+
+#         TAG="$(Build.BuildId)"
+
+#         echo "Build ID: ${TAG}"
+
+#         echo "=============================================="
+#         echo "Azure Resources"
+#         echo "=============================================="
+
+#         echo "Resource Group:"
+#         echo "$(resourceGroup)"
+
+#         echo "Container Registry:"
+#         echo "$(containerRegistry)"
+
+#         echo "Backend:"
+#         echo "$(backendApp)"
+
+#         echo "Frontend:"
+#         echo "$(frontendApp)"
+
+
+#         # ====================================================
+#         # BUILD BACKEND IMAGE
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Building StreamHive Backend Docker Image"
+#         echo "=============================================="
+
+#         az acr build \
+#           --registry "$(containerRegistry)" \
+#           --image "streamhive-backend:${TAG}" \
+#           --file backend/Dockerfile \
+#           .
+
+#         echo "Backend image successfully built."
+
+
+#         # ====================================================
+#         # BUILD FRONTEND IMAGE
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Building StreamHive Frontend Docker Image"
+#         echo "=============================================="
+
+#         az acr build \
+#           --registry "$(containerRegistry)" \
+#           --image "streamhive-frontend:${TAG}" \
+#           --file frontend/Dockerfile \
+#           .
+
+#         echo "Frontend image successfully built."
+
+
+#         # ====================================================
+#         # DISPLAY ACR IMAGES
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Images in Azure Container Registry"
+#         echo "=============================================="
+
+#         az acr repository list \
+#           --name "$(containerRegistry)" \
+#           --output table
+
+
+#         # ====================================================
+#         # DEPLOY BACKEND
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Deploying Backend Container"
+#         echo "=============================================="
+
+#         az containerapp update \
+#           --name "$(backendApp)" \
+#           --resource-group "$(resourceGroup)" \
+#           --image "$(containerRegistry).azurecr.io/streamhive-backend:${TAG}" \
+#           --revision-suffix "build-${TAG}"
+
+#         echo "Backend deployment completed."
+
+
+#         # ====================================================
+#         # DEPLOY FRONTEND
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Deploying Frontend Container"
+#         echo "=============================================="
+
+#         az containerapp update \
+#           --name "$(frontendApp)" \
+#           --resource-group "$(resourceGroup)" \
+#           --image "$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}" \
+#           --revision-suffix "build-${TAG}"
+
+#         echo "Frontend deployment completed."
+
+
+#         # ====================================================
+#         # WAIT FOR NEW REVISION
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Waiting for deployment"
+#         echo "=============================================="
+
+#         sleep 30
+
+
+#         # ====================================================
+#         # GET FRONTEND URL
+#         # ====================================================
+
+#         FRONTEND_FQDN=$(az containerapp show \
+#           --name "$(frontendApp)" \
+#           --resource-group "$(resourceGroup)" \
+#           --query "properties.configuration.ingress.fqdn" \
+#           --output tsv)
+
+#         echo ""
+#         echo "=============================================="
+#         echo "StreamHive Application URL"
+#         echo "=============================================="
+
+#         echo "https://${FRONTEND_FQDN}"
+
+
+#         # ====================================================
+#         # HEALTH CHECK
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "Running StreamHive Health Check"
+#         echo "=============================================="
+
+#         curl \
+#           --fail \
+#           --retry 5 \
+#           --retry-delay 5 \
+#           "https://${FRONTEND_FQDN}/api/health"
+
+#         echo ""
+#         echo "Health check successful."
+
+
+#         # ====================================================
+#         # DEPLOYMENT STATUS
+#         # ====================================================
+
+#         echo ""
+#         echo "=============================================="
+#         echo "DEPLOYMENT SUCCESSFUL"
+#         echo "=============================================="
+
+#         echo "Build: ${TAG}"
+
+#         echo "Backend image:"
+#         echo "$(containerRegistry).azurecr.io/streamhive-backend:${TAG}"  
+
+#         echo "Frontend image:"
+#         echo "$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}"
+
+#         echo "Application:"
+#         echo "https://${FRONTEND_FQDN}"
+
+#         echo "=============================================="
+
 
 trigger:
-  - main
-
-
-# ============================================================
-# VARIABLES
-# ============================================================
-
-variables:
-
-  # Azure DevOps service connection
-  # This must exactly match the service connection name
-  # created in Azure DevOps.
-  azureServiceConnection: 'streamhive-azure'
-
-  # Azure resources
-  resourceGroup: 'rg-streamhive'
-
-  containerRegistry: 'streamhiveregistry2026'
-
-  backendApp: 'streamhive-api'
-
-  frontendApp: 'streamhive-web'
-
-
-# ============================================================
-# AGENT
-# ============================================================
+- main
 
 pool:
-  vmImage: 'ubuntu-latest'
-
-
-# ============================================================
-# BUILD, PUSH, DEPLOY AND TEST
-# ============================================================
+  vmImage: ubuntu-latest
 
 steps:
 
-  # ----------------------------------------------------------
-  # 1. Checkout source code
-  # ----------------------------------------------------------
-
-  - checkout: self
-
-    displayName: 'Checkout StreamHive source code'
-
-
-  # ----------------------------------------------------------
-  # 2. Build and deploy using Azure CLI
-  # ----------------------------------------------------------
-
-  - task: AzureCLI@2
-
-    displayName: 'Build, Push and Deploy StreamHive'
-
-    inputs:
-
-      azureSubscription: '$(azureServiceConnection)'
-
-      scriptType: 'bash'
-
-      scriptLocation: 'inlineScript'
-
-      inlineScript: |
-
-        set -e
-
-        echo "=============================================="
-        echo "StreamHive Azure Deployment"
-        echo "=============================================="
-
-        # ----------------------------------------------------
-        # Build number used as Docker image tag
-        # ----------------------------------------------------
-
-        TAG="$(Build.BuildId)"
-
-        echo "Build ID: ${TAG}"
-
-        echo "=============================================="
-        echo "Azure Resources"
-        echo "=============================================="
-
-        echo "Resource Group:"
-        echo "$(resourceGroup)"
-
-        echo "Container Registry:"
-        echo "$(containerRegistry)"
-
-        echo "Backend:"
-        echo "$(backendApp)"
-
-        echo "Frontend:"
-        echo "$(frontendApp)"
-
-
-        # ====================================================
-        # BUILD BACKEND IMAGE
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Building StreamHive Backend Docker Image"
-        echo "=============================================="
-
-        az acr build \
-          --registry "$(containerRegistry)" \
-          --image "streamhive-backend:${TAG}" \
-          --file backend/Dockerfile \
-          .
-
-        echo "Backend image successfully built."
-
-
-        # ====================================================
-        # BUILD FRONTEND IMAGE
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Building StreamHive Frontend Docker Image"
-        echo "=============================================="
-
-        az acr build \
-          --registry "$(containerRegistry)" \
-          --image "streamhive-frontend:${TAG}" \
-          --file frontend/Dockerfile \
-          .
-
-        echo "Frontend image successfully built."
-
-
-        # ====================================================
-        # DISPLAY ACR IMAGES
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Images in Azure Container Registry"
-        echo "=============================================="
-
-        az acr repository list \
-          --name "$(containerRegistry)" \
-          --output table
-
-
-        # ====================================================
-        # DEPLOY BACKEND
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Deploying Backend Container"
-        echo "=============================================="
-
-        az containerapp update \
-          --name "$(backendApp)" \
-          --resource-group "$(resourceGroup)" \
-          --image "$(containerRegistry).azurecr.io/streamhive-backend:${TAG}" \
-          --revision-suffix "build-${TAG}"
-
-        echo "Backend deployment completed."
-
-
-        # ====================================================
-        # DEPLOY FRONTEND
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Deploying Frontend Container"
-        echo "=============================================="
-
-        az containerapp update \
-          --name "$(frontendApp)" \
-          --resource-group "$(resourceGroup)" \
-          --image "$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}" \
-          --revision-suffix "build-${TAG}"
-
-        echo "Frontend deployment completed."
-
-
-        # ====================================================
-        # WAIT FOR NEW REVISION
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Waiting for deployment"
-        echo "=============================================="
-
-        sleep 30
-
-
-        # ====================================================
-        # GET FRONTEND URL
-        # ====================================================
-
-        FRONTEND_FQDN=$(az containerapp show \
-          --name "$(frontendApp)" \
-          --resource-group "$(resourceGroup)" \
-          --query "properties.configuration.ingress.fqdn" \
-          --output tsv)
-
-        echo ""
-        echo "=============================================="
-        echo "StreamHive Application URL"
-        echo "=============================================="
-
-        echo "https://${FRONTEND_FQDN}"
-
-
-        # ====================================================
-        # HEALTH CHECK
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "Running StreamHive Health Check"
-        echo "=============================================="
-
-        curl \
-          --fail \
-          --retry 5 \
-          --retry-delay 5 \
-          "https://${FRONTEND_FQDN}/api/health"
-
-        echo ""
-        echo "Health check successful."
-
-
-        # ====================================================
-        # DEPLOYMENT STATUS
-        # ====================================================
-
-        echo ""
-        echo "=============================================="
-        echo "DEPLOYMENT SUCCESSFUL"
-        echo "=============================================="
-
-        echo "Build: ${TAG}"
-
-        echo "Backend image:"
-        echo "$(containerRegistry).azurecr.io/streamhive-backend:${TAG}"
-
-        echo "Frontend image:"
-        echo "$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}"
-
-        echo "Application:"
-        echo "https://${FRONTEND_FQDN}"
-
-        echo "=============================================="
+- checkout: self
+
+- script: |
+    echo "=========================================="
+    echo "StreamHive Azure DevOps Pipeline Test"
+    echo "=========================================="
+    echo "Pipeline is running successfully."
+    echo "Build ID: $(Build.BuildId)"
+    echo "Branch: $(Build.SourceBranch)"
+    echo "=========================================="
+  displayName: 'Test Pipeline'
+
+- script: |
+    node --version
+    npm --version
+  displayName: 'Verify Node.js'
