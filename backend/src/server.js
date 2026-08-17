@@ -54,11 +54,6 @@ app.use(
 // ============================================================
 // HEALTH CHECK
 // ============================================================
-// Used by:
-// - Azure Container Apps
-// - Azure DevOps pipeline
-// - Manual deployment testing
-// ============================================================
 
 app.get('/api/health', (req, res) => {
 
@@ -174,10 +169,12 @@ async function waitForPostgres(
       );
 
       if (i === retries - 1) {
+
         console.error(
           '[startup] PostgreSQL connection error:',
           err.message
         );
+
       }
 
       await new Promise(
@@ -218,6 +215,7 @@ async function seedCreator() {
 
   // Creator already exists
   if (existing.rows.length) {
+
     console.log(
       `[seed] creator account already exists -> ${email}`
     );
@@ -295,13 +293,33 @@ async function start() {
     //
     // Controlled by:
     //     STORAGE_PROVIDER
+    //
+    // Object storage is currently OPTIONAL.
+    // If MinIO/Azure Blob is unavailable, the backend
+    // continues starting so that PostgreSQL and other
+    // application functionality remain available.
     // --------------------------------------------------------
 
-    await ensureStorage();
+    try {
 
-    console.log(
-      '[startup] object storage ready'
-    );
+      await ensureStorage();
+
+      console.log(
+        '[startup] object storage ready'
+      );
+
+    } catch (err) {
+
+      console.error(
+        '[minio] storage initialization failed:',
+        err.message
+      );
+
+      console.warn(
+        '[startup] Continuing without object storage'
+      );
+
+    }
 
 
     // --------------------------------------------------------
