@@ -23,9 +23,13 @@ const pool = new Pool({
   // Database host
   // ----------------------------------------------------------
 
+  // host:
+  //   process.env.PGHOST ||
+  //   'postgres',
   host:
-    process.env.PGHOST ||
-    'postgres',
+  process.env.PGHOST ||
+  'streamhive-postgres-2026.postgres.database.azure.com',
+  
 
   // ----------------------------------------------------------
   // PostgreSQL port
