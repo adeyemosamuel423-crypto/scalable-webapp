@@ -12,7 +12,7 @@ server {
 
     # Backend API
     location /api/ {
-        proxy_pass BACKEND_URL_PLACEHOLDER/api/;
+        pproxy_pass https://streamhive-api.purplesky-dac4ff01.spaincentral.azurecontainerapps.io/api/;
 
         proxy_http_version 1.1;
 
