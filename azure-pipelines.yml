@@ -6,28 +6,44 @@ trigger:
 - main
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
+
+
+# ============================================================
+# VARIABLES
+# ============================================================
 
 variables:
 
   # Azure DevOps service connection
   azureServiceConnection: 'streamhive-azure'
 
-  # Azure resources
+  # Azure Resource Group
   resourceGroup: 'rg-streamhive'
 
   # Azure Container Registry
   containerRegistry: 'streamhiveregistry2026'
 
+  # Azure Container Apps Environment
+  containerAppEnvironment: 'streamhive-env'
+
   # Azure Container Apps
   backendApp: 'streamhive-api'
   frontendApp: 'streamhive-web'
 
+  # Azure region allowed by your subscription policy
+  location: 'spaincentral'
+
+
+# ============================================================
+# STEPS
+# ============================================================
 
 steps:
 
+
 # ============================================================
-# 1. CHECKOUT
+# 1. CHECKOUT SOURCE CODE
 # ============================================================
 
 - checkout: self
@@ -35,7 +51,7 @@ steps:
 
 
 # ============================================================
-# 2. BUILD AND PUSH BACKEND
+# 2. BUILD AND PUSH BACKEND DOCKER IMAGE
 # ============================================================
 
 - task: AzureCLI@2
@@ -56,8 +72,11 @@ steps:
       TAG="$(Build.BuildId)"
 
       ACR_NAME="$(containerRegistry)"
+
       IMAGE_NAME="streamhive-backend"
+
       FULL_IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${TAG}"
+
 
       echo "=============================================="
       echo "Building StreamHive Backend"
@@ -69,38 +88,57 @@ steps:
       echo "Image:"
       echo "${FULL_IMAGE}"
 
+
+      # --------------------------------------------------------
+      # Login to Azure Container Registry
+      # --------------------------------------------------------
+
       echo ""
       echo "Logging into Azure Container Registry..."
 
       az acr login \
         --name "${ACR_NAME}"
 
+
+      # --------------------------------------------------------
+      # Build backend
+      #
+      # ./backend is intentionally used as the build context.
+      # Therefore backend/package.json is available to:
+      #
+      # COPY package.json ./
+      # --------------------------------------------------------
+
       echo ""
       echo "Building backend Docker image..."
-
-      # IMPORTANT:
-      # ./backend is the Docker build context.
-      # This allows COPY package.json ./ to find:
-      # backend/package.json
 
       docker build \
         --tag "${FULL_IMAGE}" \
         --file backend/Dockerfile \
         ./backend
 
+
+      # --------------------------------------------------------
+      # Push backend image
+      # --------------------------------------------------------
+
       echo ""
       echo "Pushing backend Docker image..."
 
       docker push "${FULL_IMAGE}"
+
 
       echo ""
       echo "=============================================="
       echo "Backend image pushed successfully"
       echo "=============================================="
 
+      echo "Image:"
+      echo "${FULL_IMAGE}"
+
 
 # ============================================================
-# 3. BUILD AND PUSH FRONTEND
+# 3. BUILD AND PUSH FRONTEND DOCKER IMAGE
 # ============================================================
 
 - task: AzureCLI@2
@@ -121,8 +159,11 @@ steps:
       TAG="$(Build.BuildId)"
 
       ACR_NAME="$(containerRegistry)"
+
       IMAGE_NAME="streamhive-frontend"
+
       FULL_IMAGE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${TAG}"
+
 
       echo "=============================================="
       echo "Building StreamHive Frontend"
@@ -134,38 +175,109 @@ steps:
       echo "Image:"
       echo "${FULL_IMAGE}"
 
+
+      # --------------------------------------------------------
+      # Login to Azure Container Registry
+      # --------------------------------------------------------
+
       echo ""
       echo "Logging into Azure Container Registry..."
 
       az acr login \
         --name "${ACR_NAME}"
 
+
+      # --------------------------------------------------------
+      # Build frontend
+      # --------------------------------------------------------
+
       echo ""
       echo "Building frontend Docker image..."
-
-      # IMPORTANT:
-      # ./frontend is the Docker build context.
-      # Therefore nginx.conf.template, nginx.conf,
-      # public/, etc. are resolved from frontend/.
 
       docker build \
         --tag "${FULL_IMAGE}" \
         --file frontend/Dockerfile \
         ./frontend
 
+
+      # --------------------------------------------------------
+      # Push frontend image
+      # --------------------------------------------------------
+
       echo ""
       echo "Pushing frontend Docker image..."
 
       docker push "${FULL_IMAGE}"
+
 
       echo ""
       echo "=============================================="
       echo "Frontend image pushed successfully"
       echo "=============================================="
 
+      echo "Image:"
+      echo "${FULL_IMAGE}"
+
 
 # ============================================================
-# 4. DEPLOY BACKEND CONTAINER APP
+# 4. CREATE AZURE CONTAINER APPS ENVIRONMENT
+#    IF IT DOES NOT EXIST
+# ============================================================
+
+- task: AzureCLI@2
+  displayName: 'Create Container Apps Environment'
+
+  inputs:
+
+    azureSubscription: '$(azureServiceConnection)'
+
+    scriptType: 'bash'
+
+    scriptLocation: 'inlineScript'
+
+    inlineScript: |
+
+      set -e
+
+
+      echo "=============================================="
+      echo "Checking Container Apps Environment"
+      echo "=============================================="
+
+
+      if az containerapp env show \
+        --name "$(containerAppEnvironment)" \
+        --resource-group "$(resourceGroup)" \
+        >/dev/null 2>&1
+      then
+
+        echo ""
+        echo "Container Apps environment already exists."
+
+        echo "Environment:"
+        echo "$(containerAppEnvironment)"
+
+      else
+
+        echo ""
+        echo "Container Apps environment does not exist."
+
+        echo "Creating environment..."
+
+        az containerapp env create \
+          --name "$(containerAppEnvironment)" \
+          --resource-group "$(resourceGroup)" \
+          --location "$(location)"
+
+        echo ""
+        echo "Container Apps environment created."
+
+      fi
+
+
+# ============================================================
+# 5. DEPLOY BACKEND CONTAINER APP
+#    CREATE IF MISSING / UPDATE IF EXISTING
 # ============================================================
 
 - task: AzureCLI@2
@@ -183,32 +295,120 @@ steps:
 
       set -e
 
+
       TAG="$(Build.BuildId)"
 
-      IMAGE="$(containerRegistry).azurecr.io/streamhive-backend:${TAG}"
+      RESOURCE_GROUP="$(resourceGroup)"
+
+      APP_NAME="$(backendApp)"
+
+      ENVIRONMENT="$(containerAppEnvironment)"
+
+      ACR_NAME="$(containerRegistry)"
+
+      IMAGE="${ACR_NAME}.azurecr.io/streamhive-backend:${TAG}"
+
 
       echo "=============================================="
       echo "Deploying StreamHive Backend"
       echo "=============================================="
 
+      echo "Resource Group:"
+      echo "${RESOURCE_GROUP}"
+
       echo "Container App:"
-      echo "$(backendApp)"
+      echo "${APP_NAME}"
+
+      echo "Environment:"
+      echo "${ENVIRONMENT}"
 
       echo "Image:"
       echo "${IMAGE}"
 
-      az containerapp update \
-        --name "$(backendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --image "${IMAGE}" \
-        --revision-suffix "build-${TAG}"
+
+      # --------------------------------------------------------
+      # Get temporary ACR credentials.
+      #
+      # These are used only when creating a new Container App
+      # so Azure Container Apps can pull the private image.
+      # --------------------------------------------------------
 
       echo ""
-      echo "Backend deployment completed."
+      echo "Getting Azure Container Registry credentials..."
+
+      ACR_USERNAME=$(az acr credential show \
+        --name "${ACR_NAME}" \
+        --query "username" \
+        --output tsv)
+
+      ACR_PASSWORD=$(az acr credential show \
+        --name "${ACR_NAME}" \
+        --query "passwords[0].value" \
+        --output tsv)
+
+
+      # --------------------------------------------------------
+      # Check whether backend Container App exists
+      # --------------------------------------------------------
+
+      if az containerapp show \
+        --name "${APP_NAME}" \
+        --resource-group "${RESOURCE_GROUP}" \
+        >/dev/null 2>&1
+      then
+
+        echo ""
+        echo "Backend Container App already exists."
+
+        echo "Updating backend image..."
+
+        az containerapp update \
+          --name "${APP_NAME}" \
+          --resource-group "${RESOURCE_GROUP}" \
+          --image "${IMAGE}" \
+          --revision-suffix "build-${TAG}"
+
+
+        echo ""
+        echo "Backend Container App updated."
+
+      else
+
+        echo ""
+        echo "Backend Container App does not exist."
+
+        echo "Creating backend Container App..."
+
+
+        az containerapp create \
+          --name "${APP_NAME}" \
+          --resource-group "${RESOURCE_GROUP}" \
+          --environment "${ENVIRONMENT}" \
+          --image "${IMAGE}" \
+          --target-port 5000 \
+          --ingress external \
+          --registry-server "${ACR_NAME}.azurecr.io" \
+          --registry-username "${ACR_USERNAME}" \
+          --registry-password "${ACR_PASSWORD}" \
+          --min-replicas 1 \
+          --max-replicas 1
+
+
+        echo ""
+        echo "Backend Container App created."
+
+      fi
+
+
+      echo ""
+      echo "=============================================="
+      echo "Backend deployment completed"
+      echo "=============================================="
 
 
 # ============================================================
-# 5. DEPLOY FRONTEND CONTAINER APP
+# 6. DEPLOY FRONTEND CONTAINER APP
+#    CREATE IF MISSING / UPDATE IF EXISTING
 # ============================================================
 
 - task: AzureCLI@2
@@ -226,32 +426,116 @@ steps:
 
       set -e
 
+
       TAG="$(Build.BuildId)"
 
-      IMAGE="$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}"
+      RESOURCE_GROUP="$(resourceGroup)"
+
+      APP_NAME="$(frontendApp)"
+
+      ENVIRONMENT="$(containerAppEnvironment)"
+
+      ACR_NAME="$(containerRegistry)"
+
+      IMAGE="${ACR_NAME}.azurecr.io/streamhive-frontend:${TAG}"
+
 
       echo "=============================================="
       echo "Deploying StreamHive Frontend"
       echo "=============================================="
 
+      echo "Resource Group:"
+      echo "${RESOURCE_GROUP}"
+
       echo "Container App:"
-      echo "$(frontendApp)"
+      echo "${APP_NAME}"
+
+      echo "Environment:"
+      echo "${ENVIRONMENT}"
 
       echo "Image:"
       echo "${IMAGE}"
 
-      az containerapp update \
-        --name "$(frontendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --image "${IMAGE}" \
-        --revision-suffix "build-${TAG}"
+
+      # --------------------------------------------------------
+      # Get ACR credentials
+      # --------------------------------------------------------
 
       echo ""
-      echo "Frontend deployment completed."
+      echo "Getting Azure Container Registry credentials..."
+
+      ACR_USERNAME=$(az acr credential show \
+        --name "${ACR_NAME}" \
+        --query "username" \
+        --output tsv)
+
+      ACR_PASSWORD=$(az acr credential show \
+        --name "${ACR_NAME}" \
+        --query "passwords[0].value" \
+        --output tsv)
+
+
+      # --------------------------------------------------------
+      # Check whether frontend Container App exists
+      # --------------------------------------------------------
+
+      if az containerapp show \
+        --name "${APP_NAME}" \
+        --resource-group "${RESOURCE_GROUP}" \
+        >/dev/null 2>&1
+      then
+
+        echo ""
+        echo "Frontend Container App already exists."
+
+        echo "Updating frontend image..."
+
+        az containerapp update \
+          --name "${APP_NAME}" \
+          --resource-group "${RESOURCE_GROUP}" \
+          --image "${IMAGE}" \
+          --revision-suffix "build-${TAG}"
+
+
+        echo ""
+        echo "Frontend Container App updated."
+
+      else
+
+        echo ""
+        echo "Frontend Container App does not exist."
+
+        echo "Creating frontend Container App..."
+
+
+        az containerapp create \
+          --name "${APP_NAME}" \
+          --resource-group "${RESOURCE_GROUP}" \
+          --environment "${ENVIRONMENT}" \
+          --image "${IMAGE}" \
+          --target-port 80 \
+          --ingress external \
+          --registry-server "${ACR_NAME}.azurecr.io" \
+          --registry-username "${ACR_USERNAME}" \
+          --registry-password "${ACR_PASSWORD}" \
+          --min-replicas 1 \
+          --max-replicas 1
+
+
+        echo ""
+        echo "Frontend Container App created."
+
+      fi
+
+
+      echo ""
+      echo "=============================================="
+      echo "Frontend deployment completed"
+      echo "=============================================="
 
 
 # ============================================================
-# 6. GET APPLICATION URL
+# 7. GET FRONTEND APPLICATION URL
 # ============================================================
 
 - task: AzureCLI@2
@@ -269,9 +553,11 @@ steps:
 
       set -e
 
+
       echo "=============================================="
       echo "StreamHive Application"
       echo "=============================================="
+
 
       FRONTEND_FQDN=$(az containerapp show \
         --name "$(frontendApp)" \
@@ -279,11 +565,15 @@ steps:
         --query "properties.configuration.ingress.fqdn" \
         --output tsv)
 
+
       echo ""
-      echo "Application URL:"
+      echo "=============================================="
+      echo "APPLICATION URL"
+      echo "=============================================="
+
       echo "https://${FRONTEND_FQDN}"
 
       echo ""
       echo "=============================================="
-      echo "DEPLOYMENT COMPLETED"
+      echo "DEPLOYMENT COMPLETED SUCCESSFULLY"
       echo "=============================================="
