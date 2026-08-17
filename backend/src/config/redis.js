@@ -5,16 +5,21 @@ const { createClient } = require('redis');
 // ============================================================
 //
 // Local Docker:
+//     REDIS_ENABLED=true
 //     REDIS_HOST=redis
 //     REDIS_PORT=6379
 //
-// Azure Container Apps:
-//     REDIS_HOST=streamhive-redis
-//     REDIS_PORT=6379
+// Azure Container Apps - minimum-change deployment:
+//     REDIS_ENABLED=false
 //
-// The same application code works in both environments.
+// Redis is optional for the application.
+// If disabled, cache operations simply do nothing and the
+// application continues without Redis.
 //
 // ============================================================
+
+const REDIS_ENABLED =
+  process.env.REDIS_ENABLED !== 'false';
 
 const REDIS_HOST =
   process.env.REDIS_HOST || 'redis';
@@ -30,68 +35,82 @@ const REDIS_PASSWORD =
 
 
 // ============================================================
-// REDIS CONNECTION URL
-// ============================================================
-
-let redisUrl;
-
-if (REDIS_PASSWORD) {
-
-  redisUrl =
-    `redis://:${encodeURIComponent(REDIS_PASSWORD)}` +
-    `@${REDIS_HOST}:${REDIS_PORT}`;
-
-} else {
-
-  redisUrl =
-    `redis://${REDIS_HOST}:${REDIS_PORT}`;
-}
-
-
-// ============================================================
 // REDIS CLIENT
 // ============================================================
 
-const redisClient = createClient({
-  url: redisUrl,
+let redisClient = null;
 
-  socket: {
-    reconnectStrategy: (retries) => {
+if (REDIS_ENABLED) {
 
-      // Retry connection with increasing delay.
-      // Maximum delay = 3 seconds.
+  // ----------------------------------------------------------
+  // REDIS CONNECTION URL
+  // ----------------------------------------------------------
 
-      const delay =
-        Math.min(
-          retries * 500,
-          3000
+  let redisUrl;
+
+  if (REDIS_PASSWORD) {
+
+    redisUrl =
+      `redis://:${encodeURIComponent(REDIS_PASSWORD)}` +
+      `@${REDIS_HOST}:${REDIS_PORT}`;
+
+  } else {
+
+    redisUrl =
+      `redis://${REDIS_HOST}:${REDIS_PORT}`;
+  }
+
+
+  // ----------------------------------------------------------
+  // CREATE REDIS CLIENT
+  // ----------------------------------------------------------
+
+  redisClient = createClient({
+
+    url: redisUrl,
+
+    socket: {
+
+      reconnectStrategy: (retries) => {
+
+        const delay =
+          Math.min(
+            retries * 500,
+            3000
+          );
+
+        console.log(
+          `[redis] reconnecting in ${delay}ms...`
         );
 
-      console.log(
-        `[redis] reconnecting in ${delay}ms...`
+        return delay;
+      }
+    }
+  });
+
+
+  // ----------------------------------------------------------
+  // REDIS ERROR HANDLER
+  // ----------------------------------------------------------
+
+  redisClient.on(
+    'error',
+    (err) => {
+
+      console.error(
+        '[redis] client error:',
+        err.message
       );
 
-      return delay;
     }
-  }
-});
+  );
 
+} else {
 
-// ============================================================
-// REDIS ERROR HANDLER
-// ============================================================
-
-redisClient.on(
-  'error',
-  (err) => {
-
-    console.error(
-      '[redis] client error:',
-      err.message
-    );
-
-  }
-);
+  console.log(
+    '[redis] Redis disabled - continuing without Redis'
+  );
+}
 
 
 // ============================================================
@@ -100,9 +119,26 @@ redisClient.on(
 
 async function connectRedis() {
 
+  // Redis disabled
+  if (!REDIS_ENABLED) {
+
+    console.log(
+      '[redis] connection skipped because Redis is disabled'
+    );
+
+    return;
+  }
+
+
+  if (!redisClient) {
+    return;
+  }
+
+
   if (redisClient.isOpen) {
     return;
   }
+
 
   try {
 
@@ -130,9 +166,19 @@ async function connectRedis() {
 
 async function ensureRedis() {
 
+  if (!REDIS_ENABLED) {
+    return false;
+  }
+
+  if (!redisClient) {
+    return false;
+  }
+
   if (!redisClient.isOpen) {
     await connectRedis();
   }
+
+  return redisClient.isOpen;
 }
 
 
@@ -153,9 +199,19 @@ const DEFAULT_TTL_SECONDS =
 
 async function cacheGet(key) {
 
+  // Redis disabled
+  if (!REDIS_ENABLED) {
+    return null;
+  }
+
   try {
 
-    await ensureRedis();
+    const connected =
+      await ensureRedis();
+
+    if (!connected) {
+      return null;
+    }
 
     const raw =
       await redisClient.get(key);
@@ -188,9 +244,19 @@ async function cacheSet(
   ttl = DEFAULT_TTL_SECONDS
 ) {
 
+  // Redis disabled
+  if (!REDIS_ENABLED) {
+    return;
+  }
+
   try {
 
-    await ensureRedis();
+    const connected =
+      await ensureRedis();
+
+    if (!connected) {
+      return;
+    }
 
     await redisClient.set(
       key,
@@ -213,25 +279,24 @@ async function cacheSet(
 // ============================================================
 // CACHE INVALIDATION
 // ============================================================
-//
-// Example:
-//     cacheInvalidate('videos:*')
-//
-// This removes matching cached entries.
-//
-// ============================================================
 
 async function cacheInvalidate(pattern) {
 
+  // Redis disabled
+  if (!REDIS_ENABLED) {
+    return;
+  }
+
   try {
 
-    await ensureRedis();
+    const connected =
+      await ensureRedis();
+
+    if (!connected) {
+      return;
+    }
 
     const keys = [];
-
-    // scanIterator is preferable to KEYS for a
-    // scalable application because KEYS can block
-    // Redis when the keyspace becomes large.
 
     for await (
       const key of redisClient.scanIterator({
@@ -264,10 +329,16 @@ async function cacheInvalidate(pattern) {
 // ============================================================
 
 module.exports = {
+
   redisClient,
+
   connectRedis,
+
   ensureRedis,
+
   cacheGet,
+
   cacheSet,
+
   cacheInvalidate
 };
