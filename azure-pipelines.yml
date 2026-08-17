@@ -102,11 +102,19 @@ steps:
 
       # --------------------------------------------------------
       # Build backend
+      # --------------------------------------------------------
       #
-      # ./backend is intentionally used as the build context.
-      # Therefore backend/package.json is available to:
+      # ./backend is the Docker build context.
+      #
+      # Therefore:
+      #
+      # backend/package.json
+      #
+      # is available to:
       #
       # COPY package.json ./
+      #
+      # inside backend/Dockerfile.
       # --------------------------------------------------------
 
       echo ""
@@ -220,7 +228,58 @@ steps:
 
 
 # ============================================================
-# 4. CREATE AZURE CONTAINER APPS ENVIRONMENT
+# 4. ENABLE ACR ADMIN ACCESS
+#
+# Required because the Container Apps need registry credentials
+# when creating a new Container App from a private ACR image.
+# ============================================================
+
+- task: AzureCLI@2
+  displayName: 'Enable ACR Admin Access'
+
+  inputs:
+
+    azureSubscription: '$(azureServiceConnection)'
+
+    scriptType: 'bash'
+
+    scriptLocation: 'inlineScript'
+
+    inlineScript: |
+
+      set -e
+
+      ACR_NAME="$(containerRegistry)"
+
+
+      echo "=============================================="
+      echo "Enabling ACR Admin Access"
+      echo "=============================================="
+
+      echo "Registry:"
+      echo "${ACR_NAME}.azurecr.io"
+
+
+      # Enable ACR administrator credentials.
+      #
+      # This allows the pipeline to retrieve:
+      #   - ACR username
+      #   - ACR password
+      #
+      # These credentials are supplied to Azure Container Apps
+      # when a new Container App is created.
+
+      az acr update \
+        --name "${ACR_NAME}" \
+        --admin-enabled true
+
+
+      echo ""
+      echo "ACR admin access enabled successfully."
+
+
+# ============================================================
+# 5. CREATE AZURE CONTAINER APPS ENVIRONMENT
 #    IF IT DOES NOT EXIST
 # ============================================================
 
@@ -264,10 +323,12 @@ steps:
 
         echo "Creating environment..."
 
+
         az containerapp env create \
           --name "$(containerAppEnvironment)" \
           --resource-group "$(resourceGroup)" \
           --location "$(location)"
+
 
         echo ""
         echo "Container Apps environment created."
@@ -276,7 +337,7 @@ steps:
 
 
 # ============================================================
-# 5. DEPLOY BACKEND CONTAINER APP
+# 6. DEPLOY BACKEND CONTAINER APP
 #    CREATE IF MISSING / UPDATE IF EXISTING
 # ============================================================
 
@@ -327,24 +388,32 @@ steps:
 
 
       # --------------------------------------------------------
-      # Get temporary ACR credentials.
-      #
-      # These are used only when creating a new Container App
-      # so Azure Container Apps can pull the private image.
+      # Get ACR credentials
       # --------------------------------------------------------
 
       echo ""
       echo "Getting Azure Container Registry credentials..."
+
 
       ACR_USERNAME=$(az acr credential show \
         --name "${ACR_NAME}" \
         --query "username" \
         --output tsv)
 
+
       ACR_PASSWORD=$(az acr credential show \
         --name "${ACR_NAME}" \
         --query "passwords[0].value" \
         --output tsv)
+
+
+      if [ -z "${ACR_USERNAME}" ] || [ -z "${ACR_PASSWORD}" ]; then
+        echo "ERROR: Unable to retrieve ACR credentials."
+        exit 1
+      fi
+
+
+      echo "ACR credentials retrieved successfully."
 
 
       # --------------------------------------------------------
@@ -361,6 +430,7 @@ steps:
         echo "Backend Container App already exists."
 
         echo "Updating backend image..."
+
 
         az containerapp update \
           --name "${APP_NAME}" \
@@ -407,7 +477,7 @@ steps:
 
 
 # ============================================================
-# 6. DEPLOY FRONTEND CONTAINER APP
+# 7. DEPLOY FRONTEND CONTAINER APP
 #    CREATE IF MISSING / UPDATE IF EXISTING
 # ============================================================
 
@@ -464,15 +534,26 @@ steps:
       echo ""
       echo "Getting Azure Container Registry credentials..."
 
+
       ACR_USERNAME=$(az acr credential show \
         --name "${ACR_NAME}" \
         --query "username" \
         --output tsv)
 
+
       ACR_PASSWORD=$(az acr credential show \
         --name "${ACR_NAME}" \
         --query "passwords[0].value" \
         --output tsv)
+
+
+      if [ -z "${ACR_USERNAME}" ] || [ -z "${ACR_PASSWORD}" ]; then
+        echo "ERROR: Unable to retrieve ACR credentials."
+        exit 1
+      fi
+
+
+      echo "ACR credentials retrieved successfully."
 
 
       # --------------------------------------------------------
@@ -489,6 +570,7 @@ steps:
         echo "Frontend Container App already exists."
 
         echo "Updating frontend image..."
+
 
         az containerapp update \
           --name "${APP_NAME}" \
@@ -535,7 +617,7 @@ steps:
 
 
 # ============================================================
-# 7. GET FRONTEND APPLICATION URL
+# 8. GET FRONTEND APPLICATION URL
 # ============================================================
 
 - task: AzureCLI@2
@@ -566,12 +648,19 @@ steps:
         --output tsv)
 
 
+      if [ -z "${FRONTEND_FQDN}" ]; then
+        echo "ERROR: Could not retrieve frontend Container App URL."
+        exit 1
+      fi
+
+
       echo ""
       echo "=============================================="
       echo "APPLICATION URL"
       echo "=============================================="
 
       echo "https://${FRONTEND_FQDN}"
+
 
       echo ""
       echo "=============================================="
