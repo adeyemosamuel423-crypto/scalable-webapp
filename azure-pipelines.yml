@@ -1,29 +1,19 @@
 # ============================================================
-# StreamHive - Azure DevOps CI/CD Deployment
+# StreamHive - Azure DevOps CI/CD Pipeline
 # ============================================================
 
 trigger:
-  - main
-
-
-# ============================================================
-# AGENT
-# ============================================================
+- main
 
 pool:
-  vmImage: 'ubuntu-latest'
-
-
-# ============================================================
-# VARIABLES
-# ============================================================
+  vmImage: ubuntu-latest
 
 variables:
 
-  # Azure DevOps Service Connection
+  # Azure DevOps service connection
   azureServiceConnection: 'streamhive-azure'
 
-  # Azure Resource Group
+  # Azure resources
   resourceGroup: 'rg-streamhive'
 
   # Azure Container Registry
@@ -34,55 +24,29 @@ variables:
   frontendApp: 'streamhive-web'
 
 
-# ============================================================
-# DEPLOYMENT
-# ============================================================
-
 steps:
 
-# ------------------------------------------------------------
-# 1. Checkout source code
-# ------------------------------------------------------------
+# ============================================================
+# 1. CHECKOUT
+# ============================================================
 
 - checkout: self
   displayName: 'Checkout StreamHive source code'
 
 
-# ------------------------------------------------------------
-# 2. Azure login
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Login to Azure'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-
-    inlineScript: |
-
-      set -e
-
-      echo "=============================================="
-      echo "Azure Login"
-      echo "=============================================="
-
-      az account show --output table
-
-      echo "Azure login successful."
-
-
-# ------------------------------------------------------------
-# 3. Build and Push Backend Docker Image
-# ------------------------------------------------------------
+# ============================================================
+# 2. BUILD AND PUSH BACKEND
+# ============================================================
 
 - task: AzureCLI@2
   displayName: 'Build and Push Backend Docker Image'
 
   inputs:
+
     azureSubscription: '$(azureServiceConnection)'
+
     scriptType: 'bash'
+
     scriptLocation: 'inlineScript'
 
     inlineScript: |
@@ -114,10 +78,15 @@ steps:
       echo ""
       echo "Building backend Docker image..."
 
+      # IMPORTANT:
+      # ./backend is the Docker build context.
+      # This allows COPY package.json ./ to find:
+      # backend/package.json
+
       docker build \
         --tag "${FULL_IMAGE}" \
         --file backend/Dockerfile \
-        .
+        ./backend
 
       echo ""
       echo "Pushing backend Docker image..."
@@ -130,16 +99,19 @@ steps:
       echo "=============================================="
 
 
-# ------------------------------------------------------------
-# 4. Build and Push Frontend Docker Image
-# ------------------------------------------------------------
+# ============================================================
+# 3. BUILD AND PUSH FRONTEND
+# ============================================================
 
 - task: AzureCLI@2
   displayName: 'Build and Push Frontend Docker Image'
 
   inputs:
+
     azureSubscription: '$(azureServiceConnection)'
+
     scriptType: 'bash'
+
     scriptLocation: 'inlineScript'
 
     inlineScript: |
@@ -171,10 +143,15 @@ steps:
       echo ""
       echo "Building frontend Docker image..."
 
+      # IMPORTANT:
+      # ./frontend is the Docker build context.
+      # Therefore nginx.conf.template, nginx.conf,
+      # public/, etc. are resolved from frontend/.
+
       docker build \
         --tag "${FULL_IMAGE}" \
         --file frontend/Dockerfile \
-        .
+        ./frontend
 
       echo ""
       echo "Pushing frontend Docker image..."
@@ -187,41 +164,19 @@ steps:
       echo "=============================================="
 
 
-# ------------------------------------------------------------
-# 5. Verify Images in Azure Container Registry
-# ------------------------------------------------------------
+# ============================================================
+# 4. DEPLOY BACKEND CONTAINER APP
+# ============================================================
 
 - task: AzureCLI@2
-  displayName: 'Verify Images in Azure Container Registry'
+  displayName: 'Deploy Backend Container App'
 
   inputs:
+
     azureSubscription: '$(azureServiceConnection)'
+
     scriptType: 'bash'
-    scriptLocation: 'inlineScript'
 
-    inlineScript: |
-
-      set -e
-
-      echo "=============================================="
-      echo "Azure Container Registry Images"
-      echo "=============================================="
-
-      az acr repository list \
-        --name "$(containerRegistry)" \
-        --output table
-
-
-# ------------------------------------------------------------
-# 6. Deploy Backend Container
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Deploy Backend Container'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
     scriptLocation: 'inlineScript'
 
     inlineScript: |
@@ -252,16 +207,19 @@ steps:
       echo "Backend deployment completed."
 
 
-# ------------------------------------------------------------
-# 7. Deploy Frontend Container
-# ------------------------------------------------------------
+# ============================================================
+# 5. DEPLOY FRONTEND CONTAINER APP
+# ============================================================
 
 - task: AzureCLI@2
-  displayName: 'Deploy Frontend Container'
+  displayName: 'Deploy Frontend Container App'
 
   inputs:
+
     azureSubscription: '$(azureServiceConnection)'
+
     scriptType: 'bash'
+
     scriptLocation: 'inlineScript'
 
     inlineScript: |
@@ -292,76 +250,28 @@ steps:
       echo "Frontend deployment completed."
 
 
-# ------------------------------------------------------------
-# 8. Wait for Deployment
-# ------------------------------------------------------------
+# ============================================================
+# 6. GET APPLICATION URL
+# ============================================================
 
 - task: AzureCLI@2
-  displayName: 'Wait for Azure Deployment'
+  displayName: 'Get StreamHive Application URL'
 
   inputs:
+
     azureSubscription: '$(azureServiceConnection)'
+
     scriptType: 'bash'
-    scriptLocation: 'inlineScript'
 
-    inlineScript: |
-
-      echo "=============================================="
-      echo "Waiting for Container Apps"
-      echo "=============================================="
-
-      sleep 30
-
-      echo "Deployment wait completed."
-
-
-# ------------------------------------------------------------
-# 9. Get Backend URL
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Get Backend URL'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
     scriptLocation: 'inlineScript'
 
     inlineScript: |
 
       set -e
 
-      BACKEND_FQDN=$(az containerapp show \
-        --name "$(backendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --query "properties.configuration.ingress.fqdn" \
-        --output tsv)
-
-      echo ""
       echo "=============================================="
-      echo "Backend URL"
+      echo "StreamHive Application"
       echo "=============================================="
-
-      echo "https://${BACKEND_FQDN}"
-
-      echo "##vso[task.setvariable variable=BACKEND_FQDN]${BACKEND_FQDN}"
-
-
-# ------------------------------------------------------------
-# 10. Get Frontend URL
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Get Frontend URL'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-
-    inlineScript: |
-
-      set -e
 
       FRONTEND_FQDN=$(az containerapp show \
         --name "$(frontendApp)" \
@@ -370,145 +280,10 @@ steps:
         --output tsv)
 
       echo ""
-      echo "=============================================="
-      echo "StreamHive Application URL"
-      echo "=============================================="
-
-      echo "https://${FRONTEND_FQDN}"
-
-      echo "##vso[task.setvariable variable=FRONTEND_FQDN]${FRONTEND_FQDN}"
-
-
-# ------------------------------------------------------------
-# 11. Test Backend Health
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Test Backend Health'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-
-    inlineScript: |
-
-      set -e
-
-      BACKEND_FQDN=$(az containerapp show \
-        --name "$(backendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --query "properties.configuration.ingress.fqdn" \
-        --output tsv)
-
-      echo ""
-      echo "=============================================="
-      echo "Testing Backend Health"
-      echo "=============================================="
-
-      curl \
-        --fail \
-        --retry 10 \
-        --retry-delay 5 \
-        --max-time 30 \
-        "https://${BACKEND_FQDN}/api/health"
-
-      echo ""
-      echo "Backend health check successful."
-
-
-# ------------------------------------------------------------
-# 12. Test Frontend
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Test Frontend'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-
-    inlineScript: |
-
-      set -e
-
-      FRONTEND_FQDN=$(az containerapp show \
-        --name "$(frontendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --query "properties.configuration.ingress.fqdn" \
-        --output tsv)
-
-      echo ""
-      echo "=============================================="
-      echo "Testing Frontend"
-      echo "=============================================="
-
-      curl \
-        --fail \
-        --retry 10 \
-        --retry-delay 5 \
-        --max-time 30 \
-        "https://${FRONTEND_FQDN}"
-
-      echo ""
-      echo "Frontend health check successful."
-
-
-# ------------------------------------------------------------
-# 13. Deployment Summary
-# ------------------------------------------------------------
-
-- task: AzureCLI@2
-  displayName: 'Deployment Summary'
-
-  inputs:
-    azureSubscription: '$(azureServiceConnection)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-
-    inlineScript: |
-
-      set -e
-
-      TAG="$(Build.BuildId)"
-
-      BACKEND_FQDN=$(az containerapp show \
-        --name "$(backendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --query "properties.configuration.ingress.fqdn" \
-        --output tsv)
-
-      FRONTEND_FQDN=$(az containerapp show \
-        --name "$(frontendApp)" \
-        --resource-group "$(resourceGroup)" \
-        --query "properties.configuration.ingress.fqdn" \
-        --output tsv)
-
-      echo ""
-      echo "================================================"
-      echo "       STREAMHIVE DEPLOYMENT SUCCESSFUL"
-      echo "================================================"
-
-      echo ""
-      echo "Build:"
-      echo "${TAG}"
-
-      echo ""
-      echo "Backend:"
-      echo "https://${BACKEND_FQDN}"
-
-      echo ""
-      echo "Frontend:"
+      echo "Application URL:"
       echo "https://${FRONTEND_FQDN}"
 
       echo ""
-      echo "Backend Docker Image:"
-      echo "$(containerRegistry).azurecr.io/streamhive-backend:${TAG}"
-
-      echo ""
-      echo "Frontend Docker Image:"
-      echo "$(containerRegistry).azurecr.io/streamhive-frontend:${TAG}"
-
-      echo ""
-      echo "================================================"
+      echo "=============================================="
+      echo "DEPLOYMENT COMPLETED"
+      echo "=============================================="
