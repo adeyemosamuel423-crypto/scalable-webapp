@@ -1,41 +1,41 @@
 # ============================================================
 # StreamHive Frontend
-# Azure Container Apps compatible
 # ============================================================
 
 FROM nginx:1.27-alpine
 
+# Install gettext for envsubst
+RUN apk add --no-cache gettext
 
-# ============================================================
-# NGINX CONFIGURATION TEMPLATE
-# ============================================================
-# The official Nginx image processes templates placed in:
-#
-# /etc/nginx/templates/
-#
-# Environment variables such as BACKEND_URL are substituted
-# automatically when the container starts.
-#
-# Local:
-#     BACKEND_URL=http://backend:4000
-#
-# Azure:
-#     BACKEND_URL=http://streamhive-api
-# ============================================================
+# Copy Nginx template
+COPY nginx.conf.template /etc/nginx/default.conf.template
 
-COPY nginx.conf.template \
-     /etc/nginx/templates/default.conf.template
-
-
-# ============================================================
-# FRONTEND STATIC FILES
-# ============================================================
-
+# Copy frontend files
 COPY public/ /usr/share/nginx/html/
 
-
-# ============================================================
-# NGINX PORT
-# ============================================================
+# Create startup script
+RUN printf '#!/bin/sh\n\
+set -e\n\
+echo "=============================================="\n\
+echo "Starting StreamHive Frontend"\n\
+echo "=============================================="\n\
+echo "BACKEND_URL=$BACKEND_URL"\n\
+echo ""\n\
+if [ -z "$BACKEND_URL" ]; then\n\
+  echo "ERROR: BACKEND_URL is not set"\n\
+  exit 1\n\
+fi\n\
+sed "s|BACKEND_URL_PLACEHOLDER|$BACKEND_URL|g" /etc/nginx/default.conf.template > /etc/nginx/conf.d/default.conf\n\
+echo "Generated Nginx configuration:"\n\
+cat /etc/nginx/conf.d/default.conf\n\
+echo ""\n\
+echo "Testing Nginx configuration..."\n\
+nginx -t\n\
+echo ""\n\
+echo "Starting Nginx..."\n\
+exec nginx -g "daemon off;"\n' > /docker-entrypoint-streamhive.sh \
+    && chmod +x /docker-entrypoint-streamhive.sh
 
 EXPOSE 80
+
+ENTRYPOINT ["/docker-entrypoint-streamhive.sh"]
