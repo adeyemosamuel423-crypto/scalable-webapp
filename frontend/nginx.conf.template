@@ -5,65 +5,31 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-
-    # ============================================================
-    # FRONTEND
-    # ============================================================
-    # Serve the StreamHive static client application.
-    #
-    # try_files ensures that frontend routes are handled by
-    # index.html for the single-page application.
-    # ============================================================
-
+    # Frontend
     location / {
-        try_files $uri $uri/ /index.html;
+        try_files $${uri} $${uri}/ /index.html;
     }
 
-
-    # ============================================================
-    # BACKEND API
-    # ============================================================
-    #
-    # BACKEND_URL is supplied as an environment variable.
-    #
-    # Local Docker:
-    #     BACKEND_URL=http://backend:4000
-    #
-    # Azure Container Apps:
-    #     BACKEND_URL=http://streamhive-api
-    #
-    # This avoids hard-coding the Docker Compose service name.
-    # ============================================================
-
+    # Backend API
     location /api/ {
 
         proxy_pass ${BACKEND_URL}/api/;
 
         proxy_http_version 1.1;
 
-        proxy_set_header Host $host;
-
-        proxy_set_header X-Real-IP $remote_addr;
-
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host $${host};
+        proxy_set_header X-Real-IP $${remote_addr};
+        proxy_set_header X-Forwarded-For $${proxy_add_x_forwarded_for};
+        proxy_set_header X-Forwarded-Proto $${scheme};
 
         proxy_buffering off;
 
-        # Allow large video uploads.
         client_max_body_size 500M;
 
-        # Allow longer-running video upload/streaming requests.
         proxy_connect_timeout 60s;
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
     }
-
-
-    # ============================================================
-    # GZIP
-    # ============================================================
 
     gzip on;
 
