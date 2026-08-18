@@ -7,16 +7,24 @@ const {
 // STORAGE PROVIDER
 // ============================================================
 //
-// Local development:
-//     STORAGE_PROVIDER=minio
-//
 // Azure deployment:
 //     STORAGE_PROVIDER=azure
+//
+// Local development with MinIO:
+//     STORAGE_PROVIDER=minio
+//
+// IMPORTANT:
+// Azure is the default provider because this application is
+// deployed on Azure Container Apps.
 //
 // ============================================================
 
 const provider =
-  (process.env.STORAGE_PROVIDER || 'minio').toLowerCase();
+  (process.env.STORAGE_PROVIDER || 'azure').toLowerCase();
+
+console.log(
+  `[storage] STORAGE_PROVIDER=${provider}`
+);
 
 
 // ============================================================
@@ -30,6 +38,8 @@ const VIDEO_BUCKET =
   'streamhive-videos';
 
 if (provider === 'minio') {
+
+  console.log('[storage] Initializing MinIO storage...');
 
   minioClient = new Minio.Client({
 
@@ -54,6 +64,10 @@ if (provider === 'minio') {
       process.env.MINIO_SECRET_KEY ||
       'streamhive_secret'
   });
+
+  console.log(
+    `[storage] MinIO endpoint=${process.env.MINIO_ENDPOINT || 'minio'}`
+  );
 }
 
 
@@ -69,6 +83,8 @@ const AZURE_STORAGE_CONTAINER =
   'streamhive-videos';
 
 if (provider === 'azure') {
+
+  console.log('[storage] Initializing Azure Blob Storage...');
 
   const connectionString =
     process.env.AZURE_STORAGE_CONNECTION_STRING;
@@ -89,6 +105,10 @@ if (provider === 'azure') {
     blobServiceClient.getContainerClient(
       AZURE_STORAGE_CONTAINER
     );
+
+  console.log(
+    `[storage] Azure Blob container=${AZURE_STORAGE_CONTAINER}`
+  );
 }
 
 
@@ -114,13 +134,17 @@ if (
 
 async function ensureStorage() {
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MINIO
-  // ----------------------------------------------------------
+  // ==========================================================
 
   if (provider === 'minio') {
 
     try {
+
+      console.log(
+        `[minio] Checking bucket "${VIDEO_BUCKET}"...`
+      );
 
       const exists =
         await minioClient.bucketExists(
@@ -159,26 +183,35 @@ async function ensureStorage() {
   }
 
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // AZURE BLOB STORAGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  try {
+  if (provider === 'azure') {
 
-    await containerClient.createIfNotExists();
+    try {
 
-    console.log(
-      `[azure] blob container "${AZURE_STORAGE_CONTAINER}" ready`
-    );
+      console.log(
+        `[azure] Checking blob container "${AZURE_STORAGE_CONTAINER}"...`
+      );
 
-  } catch (err) {
+      await containerClient.createIfNotExists();
 
-    console.error(
-      '[azure] storage initialization failed:',
-      err
-    );
+      console.log(
+        `[azure] blob container "${AZURE_STORAGE_CONTAINER}" ready`
+      );
 
-    throw err;
+    } catch (err) {
+
+      console.error(
+        '[azure] storage initialization failed:',
+        err
+      );
+
+      throw err;
+    }
+
+    return;
   }
 }
 
@@ -204,11 +237,15 @@ async function putFile(
   contentType
 ) {
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MINIO
-  // ----------------------------------------------------------
+  // ==========================================================
 
   if (provider === 'minio') {
+
+    console.log(
+      `[minio] Uploading "${objectKey}"...`
+    );
 
     return minioClient.fPutObject(
       VIDEO_BUCKET,
@@ -223,25 +260,39 @@ async function putFile(
   }
 
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // AZURE BLOB STORAGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  const blobClient =
-    containerClient.getBlockBlobClient(
-      objectKey
+  if (provider === 'azure') {
+
+    console.log(
+      `[azure] Uploading "${objectKey}"...`
     );
 
-  return blobClient.uploadFile(
-    localPath,
-    {
-      blobHTTPHeaders: {
-        blobContentType:
-          contentType ||
-          'application/octet-stream'
-      }
-    }
-  );
+    const blobClient =
+      containerClient.getBlockBlobClient(
+        objectKey
+      );
+
+    const result =
+      await blobClient.uploadFile(
+        localPath,
+        {
+          blobHTTPHeaders: {
+            blobContentType:
+              contentType ||
+              'application/octet-stream'
+          }
+        }
+      );
+
+    console.log(
+      `[azure] Upload completed: "${objectKey}"`
+    );
+
+    return result;
+  }
 }
 
 
@@ -249,21 +300,20 @@ async function putFile(
 // GET FILE INFORMATION
 // ============================================================
 //
-// Returns a common structure:
+// Returns:
 //
 // {
 //     size: 123456,
 //     contentType: "video/mp4"
 // }
 //
-// This is used by video streaming.
 // ============================================================
 
 async function statFile(objectKey) {
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MINIO
-  // ----------------------------------------------------------
+  // ==========================================================
 
   if (provider === 'minio') {
 
@@ -289,27 +339,30 @@ async function statFile(objectKey) {
   }
 
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // AZURE BLOB STORAGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  const blobClient =
-    containerClient.getBlockBlobClient(
-      objectKey
-    );
+  if (provider === 'azure') {
 
-  const properties =
-    await blobClient.getProperties();
+    const blobClient =
+      containerClient.getBlockBlobClient(
+        objectKey
+      );
 
-  return {
+    const properties =
+      await blobClient.getProperties();
 
-    size:
-      Number(properties.contentLength),
+    return {
 
-    contentType:
-      properties.contentType ||
-      'application/octet-stream'
-  };
+      size:
+        Number(properties.contentLength),
+
+      contentType:
+        properties.contentType ||
+        'application/octet-stream'
+    };
+  }
 }
 
 
@@ -317,14 +370,15 @@ async function statFile(objectKey) {
 // GET COMPLETE FILE STREAM
 // ============================================================
 //
-// Used when a client requests the complete video/image.
+// Used when a client requests the complete video.
+//
 // ============================================================
 
 async function getFile(objectKey) {
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MINIO
-  // ----------------------------------------------------------
+  // ==========================================================
 
   if (provider === 'minio') {
 
@@ -335,26 +389,29 @@ async function getFile(objectKey) {
   }
 
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // AZURE BLOB STORAGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  const blobClient =
-    containerClient.getBlockBlobClient(
-      objectKey
-    );
+  if (provider === 'azure') {
 
-  const response =
-    await blobClient.download();
+    const blobClient =
+      containerClient.getBlockBlobClient(
+        objectKey
+      );
 
-  if (!response.readableStreamBody) {
+    const response =
+      await blobClient.download();
 
-    throw new Error(
-      `Azure Blob Storage returned no readable stream for "${objectKey}".`
-    );
+    if (!response.readableStreamBody) {
+
+      throw new Error(
+        `[azure] No readable stream returned for "${objectKey}".`
+      );
+    }
+
+    return response.readableStreamBody;
   }
-
-  return response.readableStreamBody;
 }
 
 
@@ -368,10 +425,12 @@ async function getFile(objectKey) {
 //
 //     bytes=0-999999
 //
-// This is essential for video:
+// Required for:
+// - video playback
 // - seeking
 // - scrubbing
-// - partial playback
+// - resume playback
+//
 // ============================================================
 
 async function getPartialFile(
@@ -380,9 +439,9 @@ async function getPartialFile(
   length
 ) {
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // MINIO
-  // ----------------------------------------------------------
+  // ==========================================================
 
   if (provider === 'minio') {
 
@@ -395,29 +454,32 @@ async function getPartialFile(
   }
 
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // AZURE BLOB STORAGE
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  const blobClient =
-    containerClient.getBlockBlobClient(
-      objectKey
-    );
+  if (provider === 'azure') {
 
-  const response =
-    await blobClient.download(
-      start,
-      length
-    );
+    const blobClient =
+      containerClient.getBlockBlobClient(
+        objectKey
+      );
 
-  if (!response.readableStreamBody) {
+    const response =
+      await blobClient.download(
+        start,
+        length
+      );
 
-    throw new Error(
-      `Azure Blob Storage returned no readable range stream for "${objectKey}".`
-    );
+    if (!response.readableStreamBody) {
+
+      throw new Error(
+        `[azure] No readable range stream returned for "${objectKey}".`
+      );
+    }
+
+    return response.readableStreamBody;
   }
-
-  return response.readableStreamBody;
 }
 
 
@@ -442,4 +504,5 @@ module.exports = {
   getFile,
 
   getPartialFile
+
 };
